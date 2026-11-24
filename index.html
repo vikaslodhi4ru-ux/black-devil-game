@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>BLACK DEVIL</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07130d;color:#fff;font-family:Arial,sans-serif;touch-action:none}
+#app{height:100dvh;width:100vw;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;gap:7px}
+#hud{width:min(1100px,98vw);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.brand{font-weight:1000;letter-spacing:3px;font-size:clamp(18px,3vw,27px);color:#caff9c;text-shadow:0 0 12px #39d66d}
+.stats{display:flex;gap:7px;align-items:center}.pill{background:#10271b;border:1px solid #397b4e;border-radius:20px;padding:7px 11px;font-size:12px;font-weight:bold}
+button{border:0;border-radius:9px;background:#36b85e;color:#06210f;padding:10px 14px;font-weight:900;cursor:pointer;box-shadow:0 3px 0 #176532}
+button:active{transform:translateY(2px);box-shadow:0 1px 0 #176532}
+#frame{position:relative;width:min(1100px,98vw,calc((100dvh - 116px)*1.7778));aspect-ratio:16/9;border:4px solid #142d1e;border-radius:12px;overflow:hidden;background:#86d98a;box-shadow:0 0 0 2px #4c9b5c,0 12px 35px #0009}
+canvas{width:100%;height:100%;display:block}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#07150dbb;padding:12px}
+.panel{width:min(440px,94%);padding:22px;background:#10251a;border:2px solid #67d783;border-radius:17px;text-align:center;box-shadow:0 12px 35px #0008}
+.panel h1{margin:0 0 8px;color:#caff9c;font-size:clamp(28px,5vw,42px);letter-spacing:2px}
+.panel p{color:#e0f4e3;line-height:1.5;font-size:14px}
+.actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+.secondary{background:#294b35;color:#fff;box-shadow:0 3px 0 #14291b}
+#levelScreen{display:none;position:absolute;inset:0;background:#07150df2;overflow:auto;padding:14px}
+#levelGrid{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;max-width:550px;margin:14px auto}
+#levelGrid button{padding:8px 2px;font-size:12px}#levelGrid button:disabled{background:#29382d;color:#78877b;box-shadow:0 2px #17231a}
+#mobileControls{display:none;width:min(1100px,98vw);justify-content:space-between;align-items:center;pointer-events:none}
+.pad{display:flex;gap:9px}.touch{pointer-events:auto;width:58px;height:48px;border-radius:12px;background:#b9f6c4;color:#063817;border:2px solid #317e47;font-size:22px;box-shadow:0 3px #1d6032;touch-action:none}
+#hint{width:min(1100px,98vw);font-size:11px;color:#b9d9c0;display:flex;justify-content:space-between}
+@media(pointer:coarse),(max-width:700px){#mobileControls{display:flex}#app{gap:5px;padding:5px}#hint{display:none}#frame{width:98vw;max-height:calc(100dvh - 125px)}.touch{width:54px;height:45px}}
+</style>
+</head>
+<body>
+<div id="app">
+ <header id="hud">
+  <div class="brand">BLACK DEVIL</div>
+  <div class="stats"><span class="pill" id="levelText">LEVEL 1 / 100</span><span class="pill" id="lifeText">TRIES 0</span><button id="levelsBtn">LEVELS</button><button id="restartBtn">↻</button></div>
+ </header>
+ <main id="frame">
+  <canvas id="game" width="960" height="540"></canvas>
+  <section id="overlay"><div class="panel"><h1 id="panelTitle">BLACK DEVIL</h1><p id="panelMsg">Explore the green world, avoid tricky traps and reach the glowing portal!</p><div class="actions"><button id="mainBtn">START GAME</button><button class="secondary" id="helpBtn">HOW TO PLAY</button></div></div></section>
+  <section id="levelScreen"><div class="panel" style="margin:auto"><h1>LEVEL MAP</h1><p>Complete a level to unlock the next one.</p><div id="levelGrid"></div><button class="secondary" id="closeLevels">CLOSE</button></div></section>
+ </main>
+ <nav id="mobileControls"><div class="pad"><button class="touch" id="leftBtn">◀</button><button class="touch" id="rightBtn">▶</button></div><button class="touch" id="jumpBtn">▲</button></nav>
+ <footer id="hint"><span>MOVE: ← → / A D &nbsp; JUMP: SPACE / ↑</span><span>Watch out! Some platforms are tricky.</span></footer>
+</div>
+<script>
+(()=>{
+const c=document.getElementById('game'),g=c.getContext('2d'),W=960,H=540;
+const $=id=>document.getElementById(id);
+let level=1,unlocked=Math.max(1,Math.min(100,+localStorage.getItem('blackDevilUnlocked')||1)),tries=0,running=false,won=false,dead=false,frame=0,cam=0,world=0;
+let p,plats=[],traps=[],goal,keys={},touch={left:false,right:false,jump:false},theme=0,notice='';
+const themes=[
+ {sky:['#a5e8a0','#e5ffc0'],far:'#6dbb75',near:'#348b51',ground:'#23653e',top:'#8ee58c'},
+ {sky:['#9edfd0','#eaffbd'],far:'#67ad85',near:'#287c62',ground:'#175642',top:'#8be0a4'},
+ {sky:['#c7e8a0','#f4ffc4'],far:'#8ebd5d',near:'#4c8e43',ground:'#315f32',top:'#a6e66e'},
+ {sky:['#9fd9b8','#d8f7a8'],far:'#5eaa73',near:'#27724c',ground:'#194d36',top:'#79d78b'}
+];
+function rand(seed){let v=Math.sin(seed*127.1+311.7)*43758.5453;return v-Math.floor(v)}
+function build(n){
+ theme=Math.floor((n-1)/6)%themes.length;plats=[];traps=[];cam=0;frame=0;
+ const styles=['gaps','moving','crumble','spikes','zigzag','mix'];let style=styles[(n-1)%styles.length];
+ world=1750+Math.min(950,n*8);
+ plats.push({x:0,y:450,w:190,h:24,type:'solid'});
+ let x=190,y=450,i=0;
+ while(x<world-230){
+  let r=rand(n*91+i*17),gap=65+Math.floor(r*35),w=105+Math.floor(rand(n*31+i*23)*65),ny=y;
+  if(style==='zigzag'||n>10)ny=y+(rand(n*13+i*41)>.5?-1:1)*(25+Math.floor(rand(n+i*7)*48));
+  ny=Math.max(300,Math.min(450,ny));
+  let type='solid';
+  if(style==='moving'&&i%2===1)type='moving';
+  if(style==='crumble'&&i%3===1)type='crumble';
+  if(style==='mix'&&i%4===2)type='moving';
+  if(style==='mix'&&i%4===3)type='crumble';
+  if(n%5===0&&i%4===1)type='fake';
+  plats.push({x:x+gap,y:ny,w,h:22,type,baseY:ny,phase:rand(n+i)*6,used:false});
+  if((style==='spikes'||style==='mix'||n>3)&&i%3===1){
+   traps.push({x:x+gap+w*.48,y:ny-16,w:Math.min(42,w*.42),h:16,type:(n%4===0?'pop':'spike'),phase:rand(i+n)*6});
+  }
+  x+=gap+w;y=ny;i++;
+ }
+ let last=plats[plats.length-1];goal={x:last.x+last.w-48,y:last.y-58,w:35,h:58};
+ if(n%4===0){let q=plats[Math.min(2,plats.length-2)];traps.push({x:q.x+q.w*.55,y:q.y-16,w:35,h:16,type:'spike',phase:0})}
+ p={x:48,y:405,w:23,h:43,vx:0,vy:0,on:false};
+}
+function start(){build(level);running=true;won=dead=false;tries++;$('lifeText').textContent='TRIES '+tries;$('levelText').textContent=`LEVEL ${level} / 100`;$('overlay').style.display='none';$('levelScreen').style.display='none'}
+function panel(title,msg,button,help='LEVELS'){running=false;$('panelTitle').textContent=title;$('panelMsg').innerHTML=msg;$('mainBtn').textContent=button;$('helpBtn').textContent=help;$('overlay').style.display='flex'}
+function die(){if(dead||won)return;dead=true;panel('TRY AGAIN','A hidden trap got you! Learn the pattern and try again.','RETRY')}
+function win(){if(won)return;won=true;unlocked=Math.max(unlocked,Math.min(100,level+1));localStorage.setItem('blackDevilUnlocked',unlocked);panel('LEVEL COMPLETE!',`Great run! Level ${level} cleared.`,` ${level===100?'PLAY AGAIN':'NEXT LEVEL'} `)}
+function makeGrid(){let grid=$('levelGrid');grid.innerHTML='';for(let i=1;i<=100;i++){let b=document.createElement('button');b.textContent=i;b.disabled=i>unlocked;b.onclick=()=>{level=i;start()};grid.appendChild(b)}}
+function rect(x,y,w,h,color){g.fillStyle=color;g.fillRect(x,y,w,h)}
+function background(){let t=themes[theme],gr=g.createLinearGradient(0,0,0,H);gr.addColorStop(0,t.sky[0]);gr.addColorStop(1,t.sky[1]);rect(0,0,W,H,gr);
+ g.fillStyle=t.far;for(let i=0;i<9;i++){let x=((i*150-cam*.18)%1200+1200)%1200-100;g.beginPath();g.moveTo(x,390);g.quadraticCurveTo(x+60,230+(i%3)*24,x+135,390);g.fill()}
+ g.fillStyle=t.near;for(let i=0;i<12;i++){let x=((i*105-cam*.34)%1100+1100)%1100-80;g.beginPath();g.arc(x,420,65,Math.PI,0);g.fill()}
+ rect(0,475,W,65,t.ground);for(let i=0;i<24;i++){let x=((i*53-cam*.55)%1020+1020)%1020;rect(x,478,3,14,'#a2e58b')}
+ // small trees and flowers in the scenery
+ for(let i=0;i<12;i++){let x=((i*117-cam*.22)%1100+1100)%1100-50;rect(x,350,7,54,'#65472e');g.fillStyle='#2b8b48';g.beginPath();g.arc(x+3,345,22,0,Math.PI*2);g.fill();g.fillStyle='#fff2a6';g.beginPath();g.arc(x+12,375,3,0,7);g.fill()}
+}
+function drawPlatform(q){let x=q.x-cam;if(x+q.w<0||x>W)return;let t=themes[theme];if(q.type==='fake'&&Math.floor(frame/35)%2===0)g.globalAlpha=.35;
+ rect(x,q.y,q.w,q.h,q.type==='crumble'?'#9a7745':q.type==='moving'?'#2c9a67':t.ground);rect(x,q.y,q.w,5,q.type==='crumble'?'#f1c27b':t.top);
+ if(q.type==='crumble'){rect(x+q.w*.25,q.y+8,12,2,'#5a4028');rect(x+q.w*.65,q.y+13,16,2,'#5a4028')}
+ g.globalAlpha=1}
+function drawTrap(q){let x=q.x-cam,active=q.type!=='pop'||Math.sin(frame*.08+q.phase)>.1;if(!active||x+q.w<0||x>W)return;
+ g.fillStyle='#29352c';g.beginPath();for(let i=0;i<3;i++){g.moveTo(x+i*q.w/3,q.y+q.h);g.lineTo(x+(i+.5)*q.w/3,q.y);g.lineTo(x+(i+1)*q.w/3,q.y+q.h)}g.fill();g.strokeStyle='#f5f4b1';g.stroke()}
+function drawPlayer(){let x=p.x-cam,y=p.y;g.save();g.translate(x+11,y+20);g.fillStyle='#101315';g.strokeStyle='#101315';g.lineWidth=5;g.lineCap='round';
+ // human-shaped shadow creature: head, torso, arms and animated legs
+ g.beginPath();g.arc(0,-13,8,0,Math.PI*2);g.fill();rect(-6,-5,12,19,'#121619');
+ let swing=running&&p.on?Math.sin(frame*.28)*5:0;g.beginPath();g.moveTo(-5,-1);g.lineTo(-11,8);g.moveTo(5,-1);g.lineTo(11,7);g.moveTo(-3,12);g.lineTo(-5+swing,24);g.moveTo(3,12);g.lineTo(5-swing,24);g.stroke();
+ rect(-10+swing,22,8,4,'#080a0b');rect(3-swing,22,8,4,'#080a0b');g.fillStyle='#e6f4db';g.fillRect(2,-15,2,2);g.restore()}
+function drawGoal(){let x=goal.x-cam;g.shadowColor='#f9ffad';g.shadowBlur=18;rect(x,goal.y,goal.w,goal.h,'#fff0a2');g.shadowBlur=0;rect(x+5,goal.y+5,goal.w-10,goal.h-5,'#318b56');g.fillStyle='#fff';g.beginPath();g.arc(x+goal.w-10,goal.y+31,3,0,7);g.fill()}
+function update(){if(!running)return;frame++;
+ for(let q of plats){if(q.type==='moving')q.y=q.baseY+Math.sin(frame*.035+q.phase)*22}
+ let left=keys.ArrowLeft||keys.a||keys.A||touch.left,right=keys.ArrowRight||keys.d||keys.D||touch.right,jump=keys.Space||keys.ArrowUp||keys.w||keys.W||touch.jump;
+ p.vx=(right?3.9:0)-(left?3.9:0);p.x=Math.max(0,p.x+p.vx);let old=p.y+p.h;p.vy=Math.min(14,p.vy+.58);p.y+=p.vy;p.on=false;
+ for(let q of plats){if(q.type==='fake'&&Math.floor(frame/35)%2===0)continue;if(p.x+p.w>q.x&&p.x<q.x+q.w&&old<=q.y+8&&p.y+p.h>=q.y&&p.vy>=0){p.y=q.y-p.h;p.vy=0;p.on=true;if(q.type==='crumble'){q.used=true;if(!q.timer)q.timer=24}}if(q.timer){q.timer--;if(q.timer===0)q.y=H+100}}
+ if(jump&&p.on){p.vy=-12.8;p.on=false}
+ for(let q of traps){let active=q.type!=='pop'||Math.sin(frame*.08+q.phase)>.1;if(active&&p.x+p.w>q.x+3&&p.x<q.x+q.w-3&&p.y+p.h>q.y+5&&p.y<q.y+q.h+18){die();return}}
+ if(p.y>H+60){die();return}
+ if(p.x+p.w>goal.x&&p.x<goal.x+goal.w&&p.y+p.h>goal.y&&p.y<goal.y+goal.h){win();return}
+ cam=Math.max(0,Math.min(world-W,p.x-300))
+}
+function draw(){g.clearRect(0,0,W,H);background();plats.forEach(drawPlatform);traps.forEach(drawTrap);drawGoal();drawPlayer();
+ g.fillStyle='#173c28';g.font='bold 15px Arial';g.fillText('LEVEL '+level,18,28);g.fillText('FIND THE PORTAL',W-155,28)}
+function loop(){update();draw();requestAnimationFrame(loop)}
+document.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','Space'].includes(e.code))e.preventDefault();keys[e.key]=true;keys[e.code]=true;
+ if(e.code==='Space'&&!running&&$('overlay').style.display!=='none'){if(won){if(level<100)level++;start()}else if(dead)start();else if($('mainBtn').textContent==='START GAME')start();else if($('mainBtn').textContent==='GOT IT')start()}}
+);
+document.addEventListener('keyup',e=>{keys[e.key]=false;keys[e.code]=false});
+function bindHold(id,key){let b=$(id);b.addEventListener('pointerdown',e=>{e.preventDefault();touch[key]=true;b.setPointerCapture(e.pointerId)});['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,e=>{touch[key]=false}))}
+bindHold('leftBtn','left');bindHold('rightBtn','right');bindHold('jumpBtn','jump');
+$('mainBtn').onclick=()=>{if(won&&level<100)level++;start()};
+$('helpBtn').onclick=()=>{if($('helpBtn').textContent==='HOW TO PLAY'){panel('HOW TO PLAY','Move: Arrow keys or A/D<br>Jump: SPACE or UP arrow<br>On mobile, use the on-screen buttons.<br>Reach the glowing portal and avoid traps.','GOT IT','BACK')}else{$('levelScreen').style.display='block';makeGrid()}};
+$('levelsBtn').onclick=()=>{$('levelScreen').style.display='block';makeGrid();running=false};
+$('closeLevels').onclick=()=>{$('levelScreen').style.display='none';if(!$('overlay').style.display||$('overlay').style.display==='none')running=true};
+$('restartBtn').onclick=start;
+makeGrid();build(1);loop();
+})();
+</script>
+</body>
+</html>
